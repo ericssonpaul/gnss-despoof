@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>GNSS·DESPOOF — Console</title>
+</head>
+<body>
+  <div id="map"></div>
+  <div id="map-controls" class="map-controls">
+    <label><input type="checkbox" id="show-path-chk" checked /> Show path</label>
+    <label><input type="checkbox" id="follow-chk" /> Follow</label>
+    <div class="zoom-group">
+      <button id="zoom-out-btn" title="Zoom out">−</button>
+      <button id="recenter-btn" title="Recenter">◎</button>
+      <button id="zoom-in-btn" title="Zoom in">+</button>
+    </div>
+  </div>
+  <div id="windows-layer" class="windows-layer"></div>
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>

@@ -1,0 +1,122 @@
+# Scenario definitions for scripts/generate_iq_samples.py.
+#
+# Scenario types map to the attack taxonomy in docs/research/gnss_spoofing_detection.pdf
+# (Psiaki & Humphreys, Table I / Fig 1):
+#   clean             - no attack, static or moving truth signal only
+#   drift             - legitimate moving receiver, no spoofing (false-positive control)
+#   meaconing         - A1: record-and-delay rebroadcast (fixed or growing/walk-off delay)
+#   open_loop_jump    - A2: abrupt, non-phase-matched high-power switch (jam + reacquire)
+#   capture_dragoff   - A3: self-consistent RX/SP, no SCER - phase-matched power ramp
+#                       to capture the tracking loop, then a gradual position drag-off
+#                       while the truth signal fades out (Fig 1's 5-panel sequence)
+#
+# Every non-`clean` scenario starts with `lock_time_s` of unmodified truth signal
+# so gnss-sdr (and the detector) have an established baseline lock before the
+# attack begins - this is the "before" state a real detector needs to compare
+# against, and mirrors how a stealthy spoofer must not disrupt an existing lock.
+#
+# Keep every individual gps-sdr-sim invocation's duration under 400s: the
+# vendored gpssim.c hits a stack-smashing bug somewhere past 400s (static and
+# dynamic mode both) regardless of USER_MOTION_SIZE. That means, per scenario:
+# clean/meaconing/open_loop_jump -> duration_s (+ lock_time_s where present)
+# < 400; capture_dragoff -> both (lock_time_s + ramp_s + dragoff_s) [truth]
+# and (ramp_s + dragoff_s) [spoof motion] < 400.
+#
+# Locations are Stockholm landmarks reconstructed from the old prototype's shell
+# history - best-effort, not guaranteed to match the originals; `castle` in
+# particular is inferred from the reference coordinate used throughout that
+# history. Verify/adjust if you know the intended spot.
+
+gps_sdr_sim:
+  ephemeris: data/ephemeris/brdc1810.26n   # overridable per-scenario
+  sample_rate_hz: 2600000
+  iq_bits: 8
+  start_time: "2026/06/30,12:00:00" # Make sure that the date corresponds with the date of the ephemeris data
+
+locations:
+  castle:       {lat: 59.32683289715587, lon: 18.071642383877435, height: 10.0}
+  globe:        {lat: 59.29376605417365, lon: 18.0831867203329,   height: 100.0}
+  kings_garden: {lat: 59.3314457073141,  lon: 18.071403601575426, height: 10.0}
+
+scenarios:
+  # --- clean: single static gps-sdr-sim run, no spoofing ---
+  - name: clean_castle
+    type: clean
+    location: castle
+    duration_s: 390
+
+  - name: clean_globe
+    type: clean
+    location: globe
+    duration_s: 390
+
+  - name: clean_kings_garden
+    type: clean
+    location: kings_garden
+    duration_s: 390
+
+  # --- drift: legitimate motion, no spoofing (false-positive control case) ---
+  - name: drift_control_castle_to_globe
+    type: drift
+    origin: castle
+    offset_m: 500
+    bearing_deg: 45
+    duration_static_s: 50
+    duration_drift_s: 330
+
+  # --- meaconing (A1): delayed rebroadcast of the truth signal at `location` ---
+  # A single-antenna relay delays every satellite's signal identically, which
+  # is degenerate with receiver clock bias in the position solve - expect the
+  # PVT clock offset to jump/drift, NOT the position fix. That's real physics,
+  # not a bug: meaconing's value is that it needs no knowledge of the signal
+  # (works even against encrypted signals) and defeats position-only/RAIM
+  # defenses precisely because it doesn't touch position. If you want an
+  # attack that visibly moves the reported position, see capture_dragoff below.
+  - name: meaconing_kings_garden_fixed
+    type: meaconing
+    location: kings_garden
+    lock_time_s: 60
+    delay_s: 0.00000667   # ~2 km equivalent one-way relay delay, held fixed
+    duration_s: 300
+
+  - name: meaconing_globe_walkoff
+    type: meaconing
+    location: globe
+    lock_time_s: 60
+    delay_s: [0, 0.0001]  # linear ramp start -> end (receding relay)
+    duration_s: 300
+
+  # --- open_loop_jump (A2): abrupt switch, no phase matching to truth ---
+  - name: open_loop_jump_kings_garden
+    type: open_loop_jump
+    location: kings_garden
+    lock_time_s: 60
+    jump_offset_m: 4000
+    jump_bearing_deg: 90
+    duration_s: 300
+
+  # --- capture_dragoff (A3): phase-matched capture ramp, then gradual drag-off ---
+  # truth call = lock_time_s+ramp_s+dragoff_s = 390; spoof motion = ramp_s+dragoff_s = 340
+  - name: capture_dragoff_globe
+    type: capture_dragoff
+    location: globe
+    lock_time_s: 50
+    ramp_s: 80           # capture phase: spoof gain ramps 0 -> gain_db, phase-matched
+    gain_db: 10.0
+    offset_m: 500         # drag-off target, relative to `location`
+    bearing_deg: 45
+    dragoff_s: 260        # drag-off duration once capture completes -> ~1.9 m/s
+
+  # A slower ramp, lower gain, and slower drag-off rate - a patient attacker
+  # per Section II.E of the paper, harder for drift/RPM-based detection to
+  # catch even though the total capture+drag-off duration is similar.
+  # truth call = 380; spoof motion = 340
+  - name: capture_dragoff_stealthy_kings_garden
+    type: capture_dragoff
+    location: kings_garden
+    lock_time_s: 40
+    ramp_s: 150
+    gain_db: 3.0
+    offset_m: 150
+    bearing_deg: 200
+    dragoff_s: 190         # ~0.8 m/s drag-off rate, well under the aggressive variant's

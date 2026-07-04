@@ -1,0 +1,19 @@
+[submodule "external/gps-sdr-sim"]
+	path = external/gps-sdr-sim
+	url = https://github.com/osqzss/gps-sdr-sim.git
+[submodule "external/uWebSockets"]
+	path = external/uWebSockets
+	url = https://github.com/uNetworking/uWebSockets.git
+[submodule "external/gnss-sdr"]
+	path = external/gnss-sdr
+	url = https://github.com/gnss-sdr/gnss-sdr.git
+[submodule "external/cppzmq"]
+	path = external/cppzmq
+	url = https://github.com/zeromq/cppzmq.git
+[submodule "external/yaml-cpp"]
+	path = external/yaml-cpp
+	url = https://github.com/jbeder/yaml-cpp.git
+[submodule "external/nlohmann-json"]
+	path = external/nlohmann-json
+	url = https://github.com/nlohmann/json.git
+	branch = v3.11.3

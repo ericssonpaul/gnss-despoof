@@ -1,0 +1,211 @@
+@import '@fontsource/jetbrains-mono/400.css';
+@import '@fontsource/jetbrains-mono/700.css';
+@import 'leaflet/dist/leaflet.css';
+
+:root {
+  --ground: #050505;
+  --win-bg: rgba(14, 14, 14, 0.92);
+  --line: #2b2b2b;
+  --line-soft: #1a1a1a;
+  --ink: #f2f2f2;
+  --ink-dim: #9a9a9a;
+  --ink-faint: #5c5c5c;
+  --crit: #ef4a4a;
+  --crit-dim: #4a1f1f;
+
+  --text-2xs: 10px;
+  --text-xs: 11px;
+  --text-sm: 12px;
+  --text-md: 14px;
+  --text-lg: 20px;
+
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+::selection { background: var(--ink); color: var(--ground); }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: var(--ground);
+  color: var(--ink);
+  font-family: 'JetBrains Mono', ui-monospace, 'SF Mono', Consolas, monospace;
+  font-size: var(--text-sm);
+  height: 100%;
+  overflow: hidden;
+}
+#app-root, body > div { height: 100%; }
+
+button, select {
+  font-family: inherit;
+  font-size: inherit;
+  color: var(--ink);
+  background: #161616;
+  border: 1px solid var(--line);
+  cursor: pointer;
+}
+button:focus-visible, select:focus-visible, [tabindex]:focus-visible {
+  outline: 1px solid var(--ink);
+  outline-offset: 1px;
+}
+
+.label {
+  font-size: var(--text-2xs);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+.tnum { font-variant-numeric: tabular-nums; }
+
+/* ---------- map ---------- */
+#map {
+  position: fixed;
+  inset: 0;
+  background: var(--ground);
+}
+/* Keep the required tile attribution, but style it to fit the dark console
+   instead of Leaflet's default light pill. */
+.leaflet-control-attribution {
+  background: var(--win-bg) !important;
+  color: var(--ink-faint) !important;
+  font-family: inherit !important;
+  font-size: var(--text-2xs) !important;
+}
+.leaflet-control-attribution a { color: var(--ink-dim) !important; }
+.leaflet-control-zoom { display: none; } /* replaced by .map-controls */
+
+.map-marker { border: none; background: transparent; }
+.map-marker-init {
+  width: 10px; height: 10px;
+  background: var(--ink);
+  transform: rotate(45deg);
+}
+.map-marker-reported {
+  width: 12px; height: 12px;
+  border-radius: 50%;
+  background: var(--ink);
+  border: 1.5px solid var(--ground);
+  box-shadow: 0 0 0 6px rgba(255, 255, 255, 0.12);
+}
+.map-marker-reported.flagged {
+  background: var(--crit);
+  box-shadow: 0 0 0 8px rgba(239, 74, 74, 0.25);
+}
+
+.map-controls {
+  position: fixed; left: 50%; bottom: 16px; transform: translateX(-50%);
+  z-index: 500;
+  height: 32px;
+  display: flex; align-items: center; gap: 12px;
+  background: var(--win-bg); backdrop-filter: blur(7px); -webkit-backdrop-filter: blur(7px);
+  border: 1px solid var(--line); padding: 6px 10px;
+  font-size: var(--text-2xs); letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-dim);
+}
+.map-controls label { display: flex; align-items: center; gap: 4px; cursor: pointer; }
+.map-controls input[type="checkbox"] { accent-color: var(--ink); }
+.map-controls .zoom-group { display: flex; gap: 2px; }
+.map-controls button { width: 22px; height: 20px; font-size: 12px; padding: 0; display: flex; align-items: center; justify-content: center; }
+.map-controls button:hover { border-color: var(--ink-faint); color: var(--ink); }
+
+/* ---------- floating window chrome ---------- */
+.windows-layer { position: fixed; inset: 0; z-index: 600; pointer-events: none; }
+
+.win {
+  position: absolute;
+  pointer-events: auto;
+  background: var(--win-bg);
+  backdrop-filter: blur(7px);
+  -webkit-backdrop-filter: blur(7px);
+  border: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.55);
+}
+.win-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 5px 8px;
+  border-bottom: 1px solid var(--line);
+  cursor: grab;
+  font-size: var(--text-2xs);
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
+  user-select: none;
+  touch-action: none;
+  flex: 0 0 auto;
+}
+.win-head:active { cursor: grabbing; }
+.win-head-right { display: flex; align-items: center; gap: 6px; }
+.win-min, .win-close { background: none; border: none; color: var(--ink-faint); cursor: pointer; font-size: 12px; line-height: 1; padding: 0 2px; }
+.win-min:hover, .win-close:hover { color: var(--ink); }
+.win-close:hover { color: var(--crit); }
+.win-body { flex: 1; min-height: 0; overflow: auto; padding: 8px; display: flex; flex-direction: column; gap: 8px; }
+.win.collapsed { height: auto !important; }
+.win.collapsed .win-body, .win.collapsed .win-resize { display: none; }
+.win-resize { position: absolute; right: 0; bottom: 0; width: 15px; height: 15px; cursor: nwse-resize; }
+.win-resize::after {
+  content: ''; position: absolute; right: 3px; bottom: 3px; width: 6px; height: 6px;
+  border-right: 1px solid var(--ink-faint); border-bottom: 1px solid var(--ink-faint);
+}
+
+/* ---------- shared components ---------- */
+.kv { display: grid; grid-template-columns: 1fr auto; gap: 3px 8px; font-size: var(--text-xs); margin: 0; }
+.kv dt { color: var(--ink-faint); margin: 0; }
+.kv dd { margin: 0; text-align: right; color: var(--ink); }
+
+.status-line { display: flex; align-items: center; gap: 6px; font-size: var(--text-xs); }
+.status-line .pip { width: 6px; height: 6px; border-radius: 50%; background: var(--ink-dim); }
+.status-line.alert { color: var(--crit); }
+.status-line.alert .pip { background: var(--crit); box-shadow: 0 0 6px var(--crit); animation: pip-pulse 1.3s ease-in-out infinite; }
+@keyframes pip-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .45; } }
+
+.picker-row { display: flex; gap: 6px; }
+.picker-row select { flex: 1; min-width: 0; padding: 3px 4px; }
+.picker-row button { flex: 0 0 auto; padding: 3px 10px; }
+.picker-row button:hover { border-color: var(--ink-faint); color: var(--ink); }
+
+.log-list { display: flex; flex-direction: column-reverse; gap: 4px; overflow-y: auto; font-size: var(--text-xs); }
+.log-row { display: flex; gap: 6px; border-bottom: 1px solid var(--line-soft); padding-bottom: 3px; }
+.log-row .t { color: var(--ink-faint); flex: 0 0 auto; }
+.log-row .m { color: var(--ink-dim); }
+.log-row.alert .m { color: var(--crit); }
+.log-row.alert .t { color: var(--crit-dim); }
+
+.gg { display: flex; flex-direction: column; gap: 2px; }
+.gg-head { display: flex; justify-content: space-between; align-items: baseline; }
+.gg-head .t { font-size: var(--text-2xs); letter-spacing: 0.07em; text-transform: uppercase; color: var(--ink-faint); }
+.gg-head .v { font-size: var(--text-xs); color: var(--ink); }
+.gg-head .v.crit { color: var(--crit); }
+.gg canvas { width: 100%; flex: 1; min-height: 0; display: block; }
+
+/* Canvases inside any window body must be able to shrink below their
+   browser-default intrinsic size, or resizing the window smaller makes the
+   canvas overflow / the window "fight" the drag - a canvas is a replaced
+   element, so like an <img> it needs an explicit min override to actually
+   respect flexbox shrinking. Broader than `.gg canvas` above because graph
+   windows built in graphs.ts don't wrap their canvas in a `.gg` div. */
+.win-body canvas { min-width: 0; min-height: 0; }
+
+.sat-table { width: 100%; border-collapse: collapse; font-size: var(--text-2xs); }
+.sat-table th {
+  text-align: left; font-weight: 400; letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--ink-faint); padding: 3px 5px; border-bottom: 1px solid var(--line);
+}
+.sat-table th.num, .sat-table td.num { text-align: right; }
+.sat-table td { padding: 3px 5px; border-bottom: 1px solid var(--line-soft); cursor: pointer; }
+.sat-table tr:hover td { background: #161616; }
+.sat-table tr.selected td { background: #1c1c1c; color: var(--ink); }
+.sat-table tr.selected td.prn { color: var(--ink); font-weight: 700; }
+.prn { font-weight: 700; color: var(--ink-dim); }
+.lock-pip { width: 5px; height: 5px; border-radius: 50%; display: inline-block; margin-right: 4px; background: var(--ink-dim); }
+.lock-pip.off { background: var(--crit); }
+.spark { vertical-align: middle; margin-left: 4px; }
+
+::-webkit-scrollbar { width: 7px; height: 7px; }
+::-webkit-scrollbar-thumb { background: var(--line); }
+::-webkit-scrollbar-track { background: transparent; }
+
+@media (prefers-reduced-motion: reduce) {
+  * { animation-duration: 0.001ms !important; transition-duration: 0.001ms !important; }
+}

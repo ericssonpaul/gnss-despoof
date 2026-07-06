@@ -53,6 +53,11 @@ set(NLOHMANN_JSON_INCLUDE_DIR ${CMAKE_SOURCE_DIR}/external/nlohmann-json/single_
 add_executable(detector_core
     main.cpp
     aggregator.cpp
+    config.cpp
+    cycle_slip.cpp
+    detection_engine.cpp
+    raim.cpp
+    receiver_history.cpp
     snapshot.cpp
     ws_server.cpp
 )
@@ -64,6 +69,7 @@ target_include_directories(detector_core PRIVATE
 )
 target_link_libraries(detector_core PRIVATE
     gnss_sdr_protobuf_wrapper
+    yaml-cpp::yaml-cpp
     ${USOCKETS_LIB}
     Threads::Threads
     ZLIB::ZLIB

@@ -76,31 +76,11 @@ struct SYNCRO_State {
     bool        flag_valid_pseudorange;  // Pseudorange computation status
     double      interp_tow_ms;  // Interpolated time of week, in ms
 };
-struct GNSS_channels {
-    std::map<uint32_t, std::vector<SYNCRO_State>> ch;
-};
-class GNSS_SDR_Server {
-    public:
-    std::string name;
-    bool static_pos;
-    double lat, lon;
-
-    std::vector<PVT_State> pvt;
-    std::vector<GNSS_channels> gps, glonass, galileo, beidou;
-
-    int cycle();
-
-    // For the units
-};
-
-class Unit {
-    public:
-    int exec(const std::vector<GNSS_SDR_Server>& servers);
-};
-
-class RAIM : public Unit {
-
-};
+// GNSS_SDR_Server/Unit/RAIM used to be sketched here. Moved out and fleshed
+// out as receiver_history.hpp (GNSS_SDR_Server -> ReceiverHistory),
+// unit.hpp (Unit, now taking a vector of ReceiverHistory pointers instead
+// of by-value GNSS_SDR_Server - see that header for why it changed), and
+// raim.hpp - see detection_engine.hpp for how they're run together.
 
 }
 

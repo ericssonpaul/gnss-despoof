@@ -77,8 +77,6 @@ Snapshot Aggregator::build_snapshot_locked() const
         snap.satellites.push_back(std::move(obs));
     }
 
-    // snap.posture stays default-constructed (all zero) and snap.events
-    // stays empty - no detection algorithms exist yet, see snapshot.hpp.
     return snap;
 }
 

@@ -5,6 +5,7 @@ export default defineConfig({
     outDir: 'dist',
   },
   server: {
+    port: Number(process.env.PORT) || 5173,
     proxy: {
       // Proxies to a detector_core process running separately in dev (see
       // frontend/README.md). In production, detector_core serves the built

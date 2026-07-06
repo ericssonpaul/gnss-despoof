@@ -1,11 +1,11 @@
 /** Pick a metric (and satellite, if applicable) and spawn a new graph
  * window. Lets several graphs from different sources be open at once. */
 import { createWindow } from './windowManager';
-import { openGraph } from './graphs';
+import { openOrFocusGraph } from './graphs';
 import { GRAPH_KINDS, SAT_GEOMETRY } from '../data/scenarios';
 
 export function buildGraphLauncherWindow(): void {
-  const { body } = createWindow({ id: 'win-launcher', title: 'Graphs', x: -1, y: -1, w: 280, h: 108, dock: 'br' });
+  const { body } = createWindow({ id: 'win-launcher', title: 'Graphs', x: -1, y: -1, w: 280, h: 108, dock: 'br', persist: true });
   body.innerHTML = `
     <div class="picker-row">
       <select id="graph-kind-sel"></select>
@@ -40,6 +40,6 @@ export function buildGraphLauncherWindow(): void {
   body.querySelector<HTMLButtonElement>('#graph-open-btn')!.addEventListener('click', () => {
     const kind = GRAPH_KINDS.find((k) => k.id === kindSel.value);
     if (!kind) return;
-    openGraph(kind.id, kind.perSat ? prnSel.value : null);
+    openOrFocusGraph(kind.id, kind.perSat ? prnSel.value : null);
   });
 }

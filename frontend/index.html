@@ -7,13 +7,21 @@
 </head>
 <body>
   <div id="map"></div>
-  <div id="map-controls" class="map-controls">
-    <label><input type="checkbox" id="show-path-chk" checked /> Show path</label>
-    <label><input type="checkbox" id="follow-chk" /> Follow</label>
-    <div class="zoom-group">
-      <button id="zoom-out-btn" title="Zoom out">−</button>
-      <button id="recenter-btn" title="Recenter">◎</button>
-      <button id="zoom-in-btn" title="Zoom in">+</button>
+  <div id="map-hud" class="map-hud">
+    <div class="map-hud-row map-legend-row">
+      <span class="legend-item"><span class="legend-swatch legend-init"></span>Initial fix</span>
+      <span class="legend-item"><span class="legend-swatch legend-reported"></span>Reported position</span>
+      <span class="legend-item"><span class="legend-swatch legend-flagged"></span>Flagged / distorted</span>
+      <span class="legend-item"><span class="legend-swatch legend-trail"></span>Trail</span>
+    </div>
+    <div class="map-hud-row map-controls-row">
+      <label><input type="checkbox" id="show-path-chk" checked /> Show path</label>
+      <label><input type="checkbox" id="follow-chk" /> Follow</label>
+      <div class="zoom-group">
+        <button id="zoom-out-btn" title="Zoom out">−</button>
+        <button id="recenter-btn" title="Recenter">◎</button>
+        <button id="zoom-in-btn" title="Zoom in">+</button>
+      </div>
     </div>
   </div>
   <div id="windows-layer" class="windows-layer"></div>

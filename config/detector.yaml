@@ -1,0 +1,18 @@
+# detector_core backend configuration. Loaded at startup - see
+# detector/config.hpp/.cpp. Path defaults to config/detector.yaml (relative
+# to the working directory); override with `detector_core <path>`.
+
+ws:
+  port: 8080
+  static_root: frontend/dist
+
+# One entry per GNSS-SDR instance to connect to. Running more than one on the
+# same host requires each instance's own .conf (see config/gnss-sdr/*.conf)
+# to use unique synchro_udp_port/pvt_udp_port/telecommand_tcp_port values
+# matching what's listed here - GNSS-SDR's own defaults collide otherwise.
+receivers:
+  - name: gnss-sdr-1
+    host: 127.0.0.1
+    synchro_udp_port: 1323
+    pvt_udp_port: 1324
+    telecommand_tcp_port: 1325

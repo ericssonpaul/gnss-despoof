@@ -15,7 +15,7 @@ interface TrackingWindow {
 }
 
 export function buildTrackingWindow(onSelectPrn: (prn: string) => void): TrackingWindow {
-  const { el: winEl, body } = createWindow({ id: 'win-tracking', title: 'Tracking · 0 CH', x: -1, y: 14, w: 460, h: 280, dock: 'tr' });
+  const { el: winEl, body } = createWindow({ id: 'win-tracking', title: 'Tracking · 0 CH', x: -1, y: 14, w: 460, h: 280, dock: 'tr', persist: true });
   body.innerHTML = `
     <table class="sat-table">
       <thead><tr>
@@ -55,8 +55,19 @@ export function buildTrackingWindow(onSelectPrn: (prn: string) => void): Trackin
     return tr;
   }
 
+  // The feed can tick up to 60Hz (SimulatedFeed rides requestAnimationFrame),
+  // but a per-satellite pair of sparkline canvases redrawn that often is both
+  // needlessly expensive and too jittery to read as a trend. Text fields
+  // still update every tick; only the sparkline canvases are throttled.
+  const SPARK_INTERVAL_MS = 180;
+  let lastSparkDraw = 0;
+
   return {
     update(state, history, selectedPrn) {
+      const now = performance.now();
+      const drawSparks = now - lastSparkDraw >= SPARK_INTERVAL_MS;
+      if (drawSparks) lastSparkDraw = now;
+
       for (const reading of state.satellites) {
         const tr = getOrCreateRow(reading.prn);
         tr.classList.toggle('selected', reading.prn === selectedPrn);
@@ -73,6 +84,8 @@ export function buildTrackingWindow(onSelectPrn: (prn: string) => void): Trackin
         tr.querySelector('[data-f="tlm"]')!.innerHTML =
           `<span class="${tlmClasses.join(' ')}" title="TLM valid"></span>` +
           (reading.flagCycleSlip ? '<span class="lock-pip off" title="Cycle slip"></span>' : '');
+
+        if (!drawSparks) continue;
         drawSparkline(
           tr.querySelector('[data-f="cn0spark"]')!,
           history

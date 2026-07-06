@@ -8,6 +8,7 @@ import { buildEventLogWindow } from './ui/eventLogWindow';
 import { buildGraphLauncherWindow } from './ui/graphLauncherWindow';
 import { openGraph, updateOpenGraphs } from './ui/graphs';
 import { buildMap } from './ui/map';
+import { buildOnboarding } from './ui/onboarding';
 import { keepWindowsOnScreen } from './ui/windowManager';
 import type { Feed } from './types';
 
@@ -29,6 +30,7 @@ const trackingWindow = buildTrackingWindow((prn) => {
 const eventLogWindow = buildEventLogWindow();
 const map = buildMap();
 buildGraphLauncherWindow();
+buildOnboarding();
 
 // A couple of graphs open by default so the console isn't empty on load.
 openGraph('pos', null);

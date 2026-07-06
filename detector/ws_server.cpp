@@ -13,6 +13,7 @@ namespace detector {
 namespace {
 
 constexpr std::string_view kSnapshotTopic = "snapshot";
+constexpr std::string_view kDetectionTopic = "detection";
 
 struct PerSocketData {};
 
@@ -62,7 +63,11 @@ WsServer::WsServer(uint16_t port, std::string static_root) : impl_(std::make_uni
                                              .compression = uWS::DISABLED,
                                              .maxPayloadLength = 16 * 1024,
                                              .idleTimeout = 30,
-                                             .open = [](auto* ws) { ws->subscribe(kSnapshotTopic); },
+                                             .open =
+                                                 [](auto* ws) {
+                                                     ws->subscribe(kSnapshotTopic);
+                                                     ws->subscribe(kDetectionTopic);
+                                                 },
                                          });
 
     impl_->app.get("/*", [this](auto* res, auto* req) {
@@ -92,6 +97,15 @@ void WsServer::publish(const Snapshot& snapshot)
     std::string payload = to_json(snapshot);
     impl_->loop->defer([this, payload = std::move(payload)]() mutable {
         impl_->app.publish(kSnapshotTopic, payload, uWS::OpCode::TEXT, false);
+    });
+}
+
+void WsServer::publish_detection(const DetectionResult& result)
+{
+    if (impl_->loop == nullptr) return;  // run() hasn't started listening yet
+    std::string payload = to_json(result);
+    impl_->loop->defer([this, payload = std::move(payload)]() mutable {
+        impl_->app.publish(kDetectionTopic, payload, uWS::OpCode::TEXT, false);
     });
 }
 

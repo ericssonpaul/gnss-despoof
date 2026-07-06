@@ -24,6 +24,21 @@ const NONE_POSTURE: Posture = { d1: 0, d2: 0, d3: 0, d4: 0 };
 const C_MPS_PER_US = 299.792458; // speed of light, meters per microsecond
 const PLAYBACK_SPEED = 6; // simulated seconds per real second; fixed, not user-controlled
 
+// SAT_GEOMETRY is real single-constellation GPS ephemeris (see scenarios.ts) -
+// its range/el values stay untouched. But a real receiver tracks a mix of
+// constellations/signals, and channel IDs come from the receiver's own slot
+// allocation, not PRN order. Rotating a cosmetic system/signal label and a
+// fixed shuffled channel id across the simulated satellites is purely so the
+// Tracking table's SYS/CH columns demo the way they'd actually render against
+// a live multi-GNSS feed, without claiming this specific recording was multi-GNSS.
+const SIM_SIGNALS: Array<{ system: string; signal: string }> = [
+  { system: 'G', signal: '1C' }, // GPS L1 C/A
+  { system: 'R', signal: '1C' }, // GLONASS L1OF
+  { system: 'E', signal: '1B' }, // Galileo E1B
+  { system: 'C', signal: '2I' }, // BeiDou B1I
+];
+const SIM_CHANNEL_ORDER = [2, 5, 0, 7, 3, 1, 6, 4];
+
 export class SimulatedFeed implements Feed {
   private listeners: Array<(state: FeedState) => void> = [];
   private scenarioIndex = 7; // start on the flagship capture/drag-off
@@ -103,14 +118,15 @@ export class SimulatedFeed implements Feed {
       const locked = cn0DbHz > 28;
       const pseudorangeM = s.range + local.clockOffsetUs * C_MPS_PER_US + posErrM * 0.3 + (Math.random() - 0.5) * 2;
       // system/signal/channelId/towMs mirror what the real feed reports, so
-      // the same UI columns render meaningfully in both modes; this is a
-      // GPS-only simulation so system/signal are constant.
+      // the same UI columns render meaningfully in both modes - see
+      // SIM_SIGNALS/SIM_CHANNEL_ORDER above for why they vary per satellite.
+      const { system, signal } = SIM_SIGNALS[index % SIM_SIGNALS.length]!;
       return {
         prn: s.prn,
         el: s.el,
-        system: 'G',
-        signal: '1C',
-        channelId: index,
+        system,
+        signal,
+        channelId: SIM_CHANNEL_ORDER[index % SIM_CHANNEL_ORDER.length]!,
         cn0DbHz,
         dopplerHz,
         pseudorangeM,
@@ -165,7 +181,13 @@ export class SimulatedFeed implements Feed {
 // Mirrors detector/snapshot.hpp's to_json() shape exactly. Deliberately
 // separate from FeedState: this is the wire contract, FeedState is the UI
 // contract, and map() below is the one place that translates between them.
+//
+// One receiver's raw telemetry, pushed immediately on every PVT/synchro
+// update. `type` is how these are told apart from DetectionResultWire below
+// - both land on the same WebSocket connection (see detector/ws_server.cpp),
+// so there's no other signal to dispatch on.
 interface DetectorSnapshotWire {
+  type: 'snapshot';
   receiver: { name: string; sessionId: string; sessionTimeS: number };
   pvt: {
     latitude: number;
@@ -198,11 +220,28 @@ interface DetectorSnapshotWire {
     flagCycleSlip: boolean;
     towMs: number;
   }>;
-  detector: {
-    posture: Posture;
-    events: Array<{ text: string; alert: boolean }>;
-  };
 }
+
+// One DetectionEngine cycle's consolidated, fleet-wide verdict - mirrors
+// detector/detection_engine.hpp's DetectionResult/Finding. Not tied to a
+// single receiver, and NOT yet surfaced in FeedState: `findings` is a
+// dynamic named list (Finding::method is a free-form id like "raim"), while
+// FeedState.posture/Posture is still the old fixed d1..d4 shape - mapping
+// one onto the other needs that type to change too, which is intentionally
+// left open (see detector/unit.hpp's header comment) until a real Unit
+// exists to inform what the mapping should look like.
+interface DetectionResultWire {
+  type: 'detection';
+  sessionTimeS: number;
+  findings: Array<{
+    method: string;
+    severity: 'none' | 'low' | 'mid' | 'high';
+    detail: string;
+    receivers: string[];
+  }>;
+}
+
+type WireMessage = DetectorSnapshotWire | DetectionResultWire;
 
 const RECONNECT_DELAY_MS = 2000;
 
@@ -236,6 +275,11 @@ export class WebSocketFeed implements Feed {
   private lastPhase: string | null = null;
   private lastPosition: LatLon & { alt: number } = { lat: 0, lon: 0, alt: 0 };
   private lastEmitted: FeedState | null = null;
+  // Last severity reported per Finding::method - lets 'detection' messages
+  // (one full, level-triggered verdict per DetectionEngine cycle, same as
+  // Snapshot) turn into edge-triggered log lines instead of one duplicate
+  // entry every cycle a condition stays active.
+  private lastFindingSeverity = new Map<string, DetectionResultWire['findings'][number]['severity']>();
 
   constructor(private readonly url: string = WebSocketFeed.defaultUrl()) {}
 
@@ -275,10 +319,14 @@ export class WebSocketFeed implements Feed {
     // on every update, not on a poll/request cycle.
     ws.addEventListener('message', (event) => {
       try {
-        const wire = JSON.parse(event.data as string) as DetectorSnapshotWire;
-        this.emit(this.map(wire));
+        const wire = JSON.parse(event.data as string) as WireMessage;
+        if (wire.type === 'snapshot') {
+          this.emit(this.map(wire));
+        } else if (wire.type === 'detection') {
+          this.handleDetection(wire);
+        }
       } catch (err) {
-        console.error('WebSocketFeed: failed to parse snapshot', err);
+        console.error('WebSocketFeed: failed to parse message', err);
       }
     });
     ws.addEventListener('close', () => this.scheduleReconnect());
@@ -306,6 +354,41 @@ export class WebSocketFeed implements Feed {
   private emit(state: FeedState): void {
     this.lastEmitted = state;
     for (const listener of this.listeners) listener(state);
+  }
+
+  // 'detection' messages arrive on their own ~1s DetectionEngine cycle,
+  // decoupled from the snapshot stream - not every tick has one, so this
+  // patches newEvents onto whatever FeedState was last emitted (same trick
+  // as emitConnectivity) rather than waiting for the next snapshot.
+  private handleDetection(wire: DetectionResultWire): void {
+    console.debug('DEBUG handleDetection', wire.sessionTimeS, JSON.stringify(wire.findings), [...this.lastFindingSeverity]);
+    const newEvents: LogEvent[] = [];
+    const seenMethods = new Set<string>();
+
+    for (const f of wire.findings) {
+      seenMethods.add(f.method);
+      const prevSeverity = this.lastFindingSeverity.get(f.method) ?? 'none';
+      if (f.severity !== prevSeverity) {
+        newEvents.push({
+          simTimeS: wire.sessionTimeS,
+          text: `${f.method.replace(/_/g, ' ').toUpperCase()} → ${f.severity.toUpperCase()}: ${f.detail}`,
+          alert: f.severity === 'high',
+        });
+      }
+      this.lastFindingSeverity.set(f.method, f.severity);
+    }
+
+    // Unit::exec returns {} for "nothing to report" (see unit.hpp) - a
+    // method that was active and is simply absent from this cycle's
+    // findings is itself the "cleared" signal, not a separate message type.
+    for (const [method, prevSeverity] of this.lastFindingSeverity) {
+      if (seenMethods.has(method) || prevSeverity === 'none') continue;
+      newEvents.push({ simTimeS: wire.sessionTimeS, text: `${method.replace(/_/g, ' ').toUpperCase()} → CLEAR`, alert: false });
+      this.lastFindingSeverity.set(method, 'none');
+    }
+
+    if (newEvents.length === 0) return;
+    this.emit({ ...this.lastEmittedOrPlaceholder(), newEvents });
   }
 
   private lastEmittedOrPlaceholder(): FeedState {
@@ -355,11 +438,7 @@ export class WebSocketFeed implements Feed {
     }));
 
     const phase = wire.pvt ? 'FIX' : 'ACQUIRING';
-    const newEvents: LogEvent[] = wire.detector.events.map((e) => ({
-      simTimeS: wire.receiver.sessionTimeS,
-      text: e.text,
-      alert: e.alert,
-    }));
+    const newEvents: LogEvent[] = [];
     if (phase !== this.lastPhase) {
       newEvents.push({ simTimeS: wire.receiver.sessionTimeS, text: `PHASE → ${phase}`, alert: false });
       this.lastPhase = phase;
@@ -376,7 +455,9 @@ export class WebSocketFeed implements Feed {
       // No correlation-distortion signal exists yet (see snapshot.hpp) - 0
       // is the same "nothing flagged" baseline the simulation uses at rest.
       distortion: 0,
-      posture: wire.detector.posture,
+      // Posture doesn't come from the per-receiver snapshot anymore - see
+      // the DetectionResultWire/'detection' handling above.
+      posture: NONE_POSTURE,
       satellites,
       dop: wire.pvt
         ? { gdop: wire.pvt.gdop, pdop: wire.pvt.pdop, hdop: wire.pvt.hdop, vdop: wire.pvt.vdop }

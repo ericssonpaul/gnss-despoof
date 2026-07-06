@@ -11,15 +11,19 @@ interface EventLogWindow {
 }
 
 export function buildEventLogWindow(): EventLogWindow {
-  const { body } = createWindow({ id: 'win-log', title: 'Event log', x: 14, y: -1, w: 300, h: 190, dock: 'bl' });
-  body.innerHTML = `<div class="log-list" id="log-list"></div>`;
+  const { body } = createWindow({ id: 'win-log', title: 'Event log', x: 14, y: -1, w: 300, h: 220, dock: 'bl', persist: true });
+  body.innerHTML = `
+    <label class="log-filter"><input type="checkbox" id="log-alerts-only" /> Alerts only</label>
+    <div class="log-list" id="log-list"></div>`;
   const listEl = body.querySelector<HTMLElement>('#log-list')!;
+  const alertsOnlyChk = body.querySelector<HTMLInputElement>('#log-alerts-only')!;
 
   const entries: LogEvent[] = [];
 
   function render() {
     listEl.innerHTML = '';
-    for (const e of entries.slice(-MAX_RENDERED)) {
+    const filtered = alertsOnlyChk.checked ? entries.filter((e) => e.alert) : entries;
+    for (const e of filtered.slice(-MAX_RENDERED)) {
       const row = document.createElement('div');
       row.className = `log-row${e.alert ? ' alert' : ''}`;
       const t = document.createElement('span');
@@ -32,6 +36,7 @@ export function buildEventLogWindow(): EventLogWindow {
       listEl.appendChild(row);
     }
   }
+  alertsOnlyChk.addEventListener('change', render);
 
   return {
     append(events) {

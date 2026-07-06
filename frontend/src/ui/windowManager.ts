@@ -19,6 +19,47 @@ export interface WindowOptions {
   dock?: DockCorner;
   closable?: boolean;
   onClose?: () => void;
+  /** Remember position/size/collapsed state across reloads under `id`.
+   * Only meaningful for windows with a stable id whose content is the same
+   * every session (the core panels) - graph windows get a fresh sequential
+   * id every load, so persisting those wouldn't reattach to anything real. */
+  persist?: boolean;
+}
+
+interface StoredLayout {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  collapsed: boolean;
+}
+
+function layoutKey(id: string): string {
+  return `gnss-despoof:win-layout:${id}`;
+}
+
+function loadLayout(id: string): StoredLayout | null {
+  try {
+    const raw = localStorage.getItem(layoutKey(id));
+    return raw ? (JSON.parse(raw) as StoredLayout) : null;
+  } catch {
+    return null;
+  }
+}
+
+function saveLayout(el: HTMLElement, id: string): void {
+  try {
+    const layout: StoredLayout = {
+      x: el.offsetLeft,
+      y: el.offsetTop,
+      w: el.offsetWidth,
+      h: parseFloat(el.style.height) || el.offsetHeight,
+      collapsed: el.classList.contains('collapsed'),
+    };
+    localStorage.setItem(layoutKey(id), JSON.stringify(layout));
+  } catch {
+    // localStorage unavailable (private mode, quota) - layout just won't persist.
+  }
 }
 
 export interface ManagedWindow {
@@ -66,13 +107,18 @@ function snapToEdges(el: HTMLElement, forceCorner?: DockCorner): void {
 }
 
 export function createWindow(opts: WindowOptions): ManagedWindow {
+  const stored = opts.persist && opts.id ? loadLayout(opts.id) : null;
+
   const el = document.createElement('div');
   el.className = 'win';
   if (opts.id) el.id = opts.id;
-  el.style.left = `${opts.x}px`;
-  el.style.top = `${opts.y}px`;
-  if (opts.w) el.style.width = `${opts.w}px`;
-  if (opts.h) el.style.height = `${opts.h}px`;
+  el.style.left = `${stored?.x ?? opts.x}px`;
+  el.style.top = `${stored?.y ?? opts.y}px`;
+  const w = stored?.w ?? opts.w;
+  const h = stored?.h ?? opts.h;
+  if (w) el.style.width = `${w}px`;
+  if (h) el.style.height = `${h}px`;
+  if (stored?.collapsed) el.classList.add('collapsed');
 
   el.innerHTML = `
     <div class="win-head">
@@ -103,6 +149,7 @@ export function createWindow(opts: WindowOptions): ManagedWindow {
       head.removeEventListener('pointermove', onMove);
       head.removeEventListener('pointerup', onUp);
       snapToEdges(el);
+      if (opts.persist && opts.id) saveLayout(el, opts.id);
     };
     head.addEventListener('pointermove', onMove);
     head.addEventListener('pointerup', onUp);
@@ -110,6 +157,7 @@ export function createWindow(opts: WindowOptions): ManagedWindow {
 
   el.querySelector<HTMLButtonElement>('.win-min')!.addEventListener('click', () => {
     el.classList.toggle('collapsed');
+    if (opts.persist && opts.id) saveLayout(el, opts.id);
   });
   const closeBtn = el.querySelector<HTMLButtonElement>('.win-close');
   if (closeBtn) {
@@ -135,13 +183,14 @@ export function createWindow(opts: WindowOptions): ManagedWindow {
     const onUp = () => {
       grip.removeEventListener('pointermove', onMove);
       grip.removeEventListener('pointerup', onUp);
+      if (opts.persist && opts.id) saveLayout(el, opts.id);
     };
     grip.addEventListener('pointermove', onMove);
     grip.addEventListener('pointerup', onUp);
   });
 
   el.addEventListener('pointerdown', () => bringToFront(el));
-  if (opts.dock) requestAnimationFrame(() => snapToEdges(el, opts.dock));
+  if (opts.dock && !stored) requestAnimationFrame(() => snapToEdges(el, opts.dock));
 
   return { el, body: el.querySelector<HTMLDivElement>('.win-body')! };
 }

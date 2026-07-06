@@ -23,21 +23,6 @@ struct SatelliteObservable {
     uint32_t tow_ms = 0;
 };
 
-// Reserved for interference/spoofing annotations. Always present, always
-// neutral (zero) today - TODO(detection): populate once RAIM / observables-
-// RPM / correlation-distortion / drift-monitor algorithms exist.
-struct DetectorPosture {
-    int d1 = 0;
-    int d2 = 0;
-    int d3 = 0;
-    int d4 = 0;
-};
-
-struct DetectorEvent {
-    std::string text;
-    bool alert = false;
-};
-
 // The full wire payload: one JSON object per WebSocket frame, pushed
 // immediately whenever fresh PVT or synchro data arrives (see Aggregator).
 struct Snapshot {
@@ -66,8 +51,10 @@ struct Snapshot {
 
     std::vector<SatelliteObservable> satellites;
 
-    DetectorPosture posture;
-    std::vector<DetectorEvent> events;
+    // Detection posture/events used to live here. Moved to DetectionResult
+    // (see detection_engine.hpp): that data is a fleet-wide verdict on the
+    // engine's own cycle cadence, not one receiver's own telemetry pushed
+    // immediately on every update like the rest of this struct.
 };
 
 std::string to_json(const Snapshot& snapshot);

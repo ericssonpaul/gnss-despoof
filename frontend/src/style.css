@@ -93,20 +93,38 @@ button:focus-visible, select:focus-visible, [tabindex]:focus-visible {
   box-shadow: 0 0 0 8px rgba(239, 74, 74, 0.25);
 }
 
-.map-controls {
+/* Single docked HUD card, bottom-center: legend row stacked over the
+ * controls row. Both the card and each row get an explicit height - a
+ * position:fixed + display:flex element with no explicit height is what
+ * rendered as a "pillar" gap in the map before (see .win-head history);
+ * don't drop these back to auto-sizing. */
+.map-hud {
   position: fixed; left: 50%; bottom: 16px; transform: translateX(-50%);
   z-index: 500;
-  height: 32px;
-  display: flex; align-items: center; gap: 12px;
+  height: 66px;
+  display: flex; flex-direction: column; gap: 6px;
   background: var(--win-bg); backdrop-filter: blur(7px); -webkit-backdrop-filter: blur(7px);
   border: 1px solid var(--line); padding: 6px 10px;
+  pointer-events: none;
+}
+.map-hud-row { height: 20px; display: flex; align-items: center; gap: 12px; flex: 0 0 auto; }
+.map-legend-row { font-size: var(--text-2xs); letter-spacing: 0.04em; color: var(--ink-dim); }
+.map-controls-row {
+  pointer-events: auto;
   font-size: var(--text-2xs); letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-dim);
 }
-.map-controls label { display: flex; align-items: center; gap: 4px; cursor: pointer; }
-.map-controls input[type="checkbox"] { accent-color: var(--ink); }
-.map-controls .zoom-group { display: flex; gap: 2px; }
-.map-controls button { width: 22px; height: 20px; font-size: 12px; padding: 0; display: flex; align-items: center; justify-content: center; }
-.map-controls button:hover { border-color: var(--ink-faint); color: var(--ink); }
+.map-controls-row label { display: flex; align-items: center; gap: 4px; cursor: pointer; }
+.map-controls-row input[type="checkbox"] { accent-color: var(--ink); }
+.map-controls-row .zoom-group { display: flex; gap: 2px; }
+.map-controls-row button { width: 22px; height: 20px; font-size: 12px; padding: 0; display: flex; align-items: center; justify-content: center; }
+.map-controls-row button:hover { border-color: var(--ink-faint); color: var(--ink); }
+
+.legend-item { display: flex; align-items: center; gap: 5px; white-space: nowrap; }
+.legend-swatch { width: 9px; height: 9px; flex: 0 0 auto; }
+.legend-swatch.legend-init { background: var(--ink); transform: rotate(45deg); }
+.legend-swatch.legend-reported { border-radius: 50%; background: var(--ink); }
+.legend-swatch.legend-flagged { border-radius: 50%; background: var(--crit); }
+.legend-swatch.legend-trail { height: 2px; background: rgba(255, 255, 255, 0.45); }
 
 /* ---------- floating window chrome ---------- */
 .windows-layer { position: fixed; inset: 0; z-index: 600; pointer-events: none; }
@@ -165,6 +183,11 @@ button:focus-visible, select:focus-visible, [tabindex]:focus-visible {
 .picker-row button { flex: 0 0 auto; padding: 3px 10px; }
 .picker-row button:hover { border-color: var(--ink-faint); color: var(--ink); }
 
+.log-filter {
+  display: flex; align-items: center; gap: 5px; cursor: pointer; flex: 0 0 auto;
+  font-size: var(--text-2xs); letter-spacing: 0.05em; text-transform: uppercase; color: var(--ink-faint);
+}
+.log-filter input[type="checkbox"] { accent-color: var(--ink); }
 .log-list { display: flex; flex-direction: column-reverse; gap: 4px; overflow-y: auto; font-size: var(--text-xs); }
 .log-row { display: flex; gap: 6px; border-bottom: 1px solid var(--line-soft); padding-bottom: 3px; }
 .log-row .t { color: var(--ink-faint); flex: 0 0 auto; }
@@ -177,6 +200,11 @@ button:focus-visible, select:focus-visible, [tabindex]:focus-visible {
 .gg-head .t { font-size: var(--text-2xs); letter-spacing: 0.07em; text-transform: uppercase; color: var(--ink-faint); }
 .gg-head .v { font-size: var(--text-xs); color: var(--ink); }
 .gg-head .v.crit { color: var(--crit); }
+.gg-win-sel {
+  font-size: var(--text-2xs); padding: 0 2px; height: 15px; border-color: var(--line-soft);
+  background: transparent; color: var(--ink-faint); flex: 0 0 auto;
+}
+.gg-win-sel:hover { color: var(--ink-dim); }
 .gg canvas { width: 100%; flex: 1; min-height: 0; display: block; }
 
 /* Canvases inside any window body must be able to shrink below their
@@ -205,6 +233,35 @@ button:focus-visible, select:focus-visible, [tabindex]:focus-visible {
 ::-webkit-scrollbar { width: 7px; height: 7px; }
 ::-webkit-scrollbar-thumb { background: var(--line); }
 ::-webkit-scrollbar-track { background: transparent; }
+
+/* ---------- onboarding ---------- */
+.onboarding-backdrop {
+  position: fixed; inset: 0; z-index: 900;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(0, 0, 0, 0.6); backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px);
+}
+.onboarding-card {
+  width: min(420px, calc(100vw - 32px));
+  background: var(--win-bg); border: 1px solid var(--line);
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.6);
+  padding: 20px 22px;
+}
+.onboarding-kicker {
+  font-size: var(--text-2xs); letter-spacing: 0.16em; text-transform: uppercase; color: var(--ink-faint);
+  margin-bottom: 8px;
+}
+.onboarding-card h1 {
+  font-size: var(--text-lg); font-weight: 700; margin: 0 0 12px;
+}
+.onboarding-card p { font-size: var(--text-sm); color: var(--ink-dim); line-height: 1.5; margin: 0 0 12px; }
+.onboarding-card ul { margin: 0 0 18px; padding-left: 18px; display: flex; flex-direction: column; gap: 7px; }
+.onboarding-card li { font-size: var(--text-xs); color: var(--ink-dim); line-height: 1.4; }
+.ob-init { color: var(--ink); }
+.onboarding-actions { display: flex; justify-content: flex-end; }
+.onboarding-actions button {
+  padding: 6px 16px; font-size: var(--text-xs); letter-spacing: 0.04em; text-transform: uppercase;
+}
+.onboarding-actions button:hover { border-color: var(--ink-faint); color: var(--ink); }
 
 @media (prefers-reduced-motion: reduce) {
   * { animation-duration: 0.001ms !important; transition-duration: 0.001ms !important; }

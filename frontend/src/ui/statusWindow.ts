@@ -16,7 +16,7 @@ function statusFor(state: FeedState): { alert: boolean; text: string } {
 }
 
 export function buildStatusWindow(): StatusWindow {
-  const { body } = createWindow({ id: 'win-status', title: 'Status', x: 14, y: 14, w: 270, h: 280, dock: 'tl' });
+  const { body } = createWindow({ id: 'win-status', title: 'Status', x: 14, y: 14, w: 270, h: 280, dock: 'tl', persist: true });
   body.innerHTML = `
     <div class="status-line" id="status-line"><span class="pip"></span><span id="status-text">NOMINAL</span></div>
     <dl class="kv">

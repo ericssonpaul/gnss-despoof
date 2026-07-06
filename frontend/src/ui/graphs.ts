@@ -17,6 +17,14 @@ import type { FeedState } from '../types';
 
 const DEFAULT_WINDOW_S = 60;
 const WHEEL_STEP_S = 4;
+/** Choices for the per-graph time-window ("buffer size") selector. */
+const WINDOW_CHOICES_S = [15, 30, 60, 120, 300];
+function formatWindowChoice(s: number): string {
+  return s < 60 ? `${s}s` : `${s / 60}m`;
+}
+// Shared by the draw functions and the hover/crosshair pixel<->time mapping
+// below so they can never drift out of sync with each other.
+const GRAPH_PAD = { l: 2, r: 2, t: 11, b: 11 };
 
 const GRAPH_UNITS: Record<string, string> = {
   pos: 'm',
@@ -36,6 +44,65 @@ function formatAxisValue(v: number, unit: string): string {
 interface TimeWindow {
   startT: number;
   endT: number;
+}
+
+function nearestSample(samples: readonly Sample[], t: number): Sample | null {
+  if (samples.length === 0) return null;
+  let best = samples[0]!;
+  let bestDist = Math.abs(best.t - t);
+  for (const s of samples) {
+    const d = Math.abs(s.t - t);
+    if (d < bestDist) {
+      best = s;
+      bestDist = d;
+    }
+  }
+  return best;
+}
+
+/** Stock-chart-style hover readout: a dashed vertical line at the cursor's
+ * time, plus a small value/time-ago label box clamped to stay on-canvas. */
+function drawCrosshair(
+  ctx: CanvasRenderingContext2D,
+  pad: { l: number; r: number; t: number; b: number },
+  w: number,
+  h: number,
+  x: number,
+  lines: Array<{ text: string; color?: string }>,
+): void {
+  ctx.save();
+  ctx.strokeStyle = cssVar('--ink-faint');
+  ctx.setLineDash([2, 2]);
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(x, pad.t);
+  ctx.lineTo(x, h - pad.b);
+  ctx.stroke();
+  ctx.restore();
+
+  ctx.font = '9px JetBrains Mono, monospace';
+  const padX = 4;
+  const padY = 3;
+  const lineH = 10;
+  const textW = Math.max(...lines.map((l) => ctx.measureText(l.text).width));
+  const boxW = textW + padX * 2;
+  const boxH = lines.length * lineH + padY * 2 - 2;
+  let boxX = x + 6;
+  if (boxX + boxW > w - pad.r) boxX = x - boxW - 6;
+  const boxY = pad.t + 2;
+
+  ctx.fillStyle = 'rgba(5, 5, 5, 0.85)';
+  ctx.strokeStyle = cssVar('--line');
+  ctx.lineWidth = 1;
+  ctx.fillRect(boxX, boxY, boxW, boxH);
+  ctx.strokeRect(boxX + 0.5, boxY + 0.5, boxW, boxH);
+
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'top';
+  lines.forEach((line, i) => {
+    ctx.fillStyle = line.color ?? cssVar('--ink');
+    ctx.fillText(line.text, boxX + padX, boxY + padY + i * lineH);
+  });
 }
 
 function drawAxes(
@@ -72,14 +139,14 @@ function drawSeriesInner(
   samples: readonly Sample[],
   view: TimeWindow,
   panOffsetS: number,
-  opts: { min?: number; max?: number; color?: string; unit?: string } = {},
+  opts: { min?: number; max?: number; color?: string; unit?: string; hoverT?: number | null } = {},
 ): void {
   const live = panOffsetS === 0;
   const ctx = fitCanvas(cv);
   const w = cv.clientWidth;
   const h = cv.clientHeight;
   ctx.clearRect(0, 0, w, h);
-  const pad = { l: 2, r: 2, t: 11, b: 11 };
+  const pad = GRAPH_PAD;
   const iw = w - pad.l - pad.r;
   const ih = h - pad.t - pad.b;
   const values = samples.map((s) => s.v);
@@ -136,6 +203,18 @@ function drawSeriesInner(
     ctx.arc(x(last.t), y(last.v), 2, 0, Math.PI * 2);
     ctx.fill();
   }
+
+  if (opts.hoverT != null) {
+    const hoverT = Math.min(Math.max(opts.hoverT, view.startT), view.endT);
+    const nearest = nearestSample(samples, hoverT);
+    if (nearest) {
+      const secondsAgo = panOffsetS + (view.endT - nearest.t);
+      drawCrosshair(ctx, pad, w, h, x(hoverT), [
+        { text: formatAxisValue(nearest.v, opts.unit ?? '') },
+        { text: secondsAgo < 0.05 ? 'now' : `-${secondsAgo.toFixed(1)}s` },
+      ]);
+    }
+  }
 }
 
 function drawMultiSeriesInner(
@@ -143,13 +222,13 @@ function drawMultiSeriesInner(
   seriesList: Array<{ data: readonly Sample[]; color: string }>,
   view: TimeWindow,
   panOffsetS: number,
-  opts: { min?: number; max?: number; unit?: string } = {},
+  opts: { min?: number; max?: number; unit?: string; hoverT?: number | null } = {},
 ): void {
   const ctx = fitCanvas(cv);
   const w = cv.clientWidth;
   const h = cv.clientHeight;
   ctx.clearRect(0, 0, w, h);
-  const pad = { l: 2, r: 2, t: 11, b: 11 };
+  const pad = GRAPH_PAD;
   const iw = w - pad.l - pad.r;
   const ih = h - pad.t - pad.b;
   const all = seriesList.flatMap((s) => s.data.map((d) => d.v));
@@ -170,9 +249,9 @@ function drawMultiSeriesInner(
 
   drawAxes(ctx, pad, w, h, min, max, opts.unit ?? '', panOffsetS, view.endT - view.startT);
 
+  const x = (t: number) => pad.l + iw * ((t - view.startT) / tSpan);
   for (const s of seriesList) {
     if (s.data.length < 2) continue;
-    const x = (t: number) => pad.l + iw * ((t - view.startT) / tSpan);
     const y = (v: number) => pad.t + ih * (1 - (v - min) / span);
     ctx.strokeStyle = s.color;
     ctx.lineWidth = 1.2;
@@ -180,6 +259,17 @@ function drawMultiSeriesInner(
     ctx.moveTo(x(s.data[0]!.t), y(s.data[0]!.v));
     for (let i = 1; i < s.data.length; i++) ctx.lineTo(x(s.data[i]!.t), y(s.data[i]!.v));
     ctx.stroke();
+  }
+
+  if (opts.hoverT != null) {
+    const hoverT = Math.min(Math.max(opts.hoverT, view.startT), view.endT);
+    const secondsAgo = panOffsetS + (view.endT - hoverT);
+    const lines = seriesList.map((s) => {
+      const nearest = nearestSample(s.data, hoverT);
+      return { text: nearest ? formatAxisValue(nearest.v, opts.unit ?? '') : '—', color: s.color };
+    });
+    lines.push({ text: secondsAgo < 0.05 ? 'now' : `-${secondsAgo.toFixed(1)}s`, color: cssVar('--ink') });
+    drawCrosshair(ctx, pad, w, h, x(hoverT), lines);
   }
 }
 
@@ -280,6 +370,12 @@ interface OpenGraph {
   window: ManagedWindow;
   /** Seconds back from "now" the view is anchored; 0 = live/following. */
   panOffsetS: number;
+  /** Width of the visible time window, in seconds - adjustable per graph via
+   * the header's buffer-size selector. */
+  windowS: number;
+  /** Time (in feed simTimeS) the pointer is hovering over, or null when not
+   * hovering - drives the crosshair readout. */
+  hoverT: number | null;
 }
 
 const openGraphs: OpenGraph[] = [];
@@ -320,7 +416,7 @@ function clampPan(g: OpenGraph, history: HistoryStore, nowT: number): void {
   const keys = keysForKind(g.kind, g.prn);
   const earliestTimes = keys.map((k) => history.earliest(k)).filter((t): t is number => t !== null);
   const earliest = earliestTimes.length ? Math.min(...earliestTimes) : nowT;
-  const maxPan = Math.max(0, nowT - earliest - DEFAULT_WINDOW_S * 0.25);
+  const maxPan = Math.max(0, nowT - earliest - g.windowS * 0.25);
   g.panOffsetS = Math.min(Math.max(g.panOffsetS, 0), maxPan);
 }
 
@@ -331,19 +427,24 @@ function redrawGraph(g: OpenGraph): void {
   const nowT = state.simTimeS;
   clampPan(g, history, nowT);
   const endT = nowT - g.panOffsetS;
-  const startT = endT - DEFAULT_WINDOW_S;
+  const startT = endT - g.windowS;
   const view: TimeWindow = { startT, endT };
+  const hoverT = g.hoverT;
 
   switch (g.kind) {
     case 'pos':
-      drawSeriesInner(g.canvas, history.getWindow('pos', startT, endT), view, g.panOffsetS, { min: 0, unit: GRAPH_UNITS.pos });
+      drawSeriesInner(g.canvas, history.getWindow('pos', startT, endT), view, g.panOffsetS, {
+        min: 0,
+        unit: GRAPH_UNITS.pos,
+        hoverT,
+      });
       if (g.valueEl) {
         g.valueEl.textContent = `${state.posErrM.toFixed(1)} m`;
         g.valueEl.className = `v tnum${state.posErrM > 50 ? ' crit' : ''}`;
       }
       break;
     case 'alt':
-      drawSeriesInner(g.canvas, history.getWindow('alt', startT, endT), view, g.panOffsetS, { unit: GRAPH_UNITS.alt });
+      drawSeriesInner(g.canvas, history.getWindow('alt', startT, endT), view, g.panOffsetS, { unit: GRAPH_UNITS.alt, hoverT });
       if (g.valueEl) g.valueEl.textContent = `${state.position.alt.toFixed(1)} m`;
       break;
     case 'clk':
@@ -351,6 +452,7 @@ function redrawGraph(g: OpenGraph): void {
         min: 0,
         unit: GRAPH_UNITS.clk,
         color: state.posture.d4 >= 3 ? cssVar('--crit') : cssVar('--ink'),
+        hoverT,
       });
       if (g.valueEl) {
         g.valueEl.textContent = `${state.clockOffsetUs.toFixed(2)} µs`;
@@ -363,7 +465,7 @@ function redrawGraph(g: OpenGraph): void {
         DOP_SERIES.map((s) => ({ data: history.getWindow(`dop.${s.key}`, startT, endT), color: dopColor(s.key) })),
         view,
         g.panOffsetS,
-        { min: 0, unit: GRAPH_UNITS.dil },
+        { min: 0, unit: GRAPH_UNITS.dil, hoverT },
       );
       if (g.valueEl) g.valueEl.textContent = history.last('dop.pdop').toFixed(2);
       break;
@@ -373,13 +475,17 @@ function redrawGraph(g: OpenGraph): void {
         min: 20,
         max: 52,
         unit: GRAPH_UNITS.cn0,
+        hoverT,
       });
       if (g.valueEl) g.valueEl.textContent = `${history.last(satKey(prn, 'cn0')).toFixed(1)} dB·Hz`;
       break;
     }
     case 'dop': {
       const prn = g.prn!;
-      drawSeriesInner(g.canvas, history.getWindow(satKey(prn, 'dop'), startT, endT), view, g.panOffsetS, { unit: GRAPH_UNITS.dop });
+      drawSeriesInner(g.canvas, history.getWindow(satKey(prn, 'dop'), startT, endT), view, g.panOffsetS, {
+        unit: GRAPH_UNITS.dop,
+        hoverT,
+      });
       if (g.valueEl) {
         const v = history.last(satKey(prn, 'dop'));
         g.valueEl.textContent = `${v >= 0 ? '+' : ''}${v.toFixed(0)} Hz`;
@@ -395,16 +501,32 @@ function redrawGraph(g: OpenGraph): void {
   }
 }
 
+/** Convert a canvas-relative clientX into the feed time it corresponds to,
+ * given the graph's current pan/window - inverse of drawSeriesInner's `x()`. */
+function clientXToT(g: OpenGraph, cv: HTMLCanvasElement, clientX: number): number | null {
+  if (!lastState) return null;
+  const rect = cv.getBoundingClientRect();
+  const iw = cv.clientWidth - GRAPH_PAD.l - GRAPH_PAD.r;
+  if (iw <= 0) return null;
+  const nowT = lastState.simTimeS;
+  const endT = nowT - g.panOffsetS;
+  const startT = endT - g.windowS;
+  const frac = (clientX - rect.left - GRAPH_PAD.l) / iw;
+  return startT + frac * (endT - startT);
+}
+
 function attachPanControls(g: OpenGraph): void {
   const cv = g.canvas;
   const isTimeSeries = g.kind !== 'iq';
   if (!isTimeSeries) return;
 
+  let dragging = false;
   cv.style.cursor = 'grab';
   cv.addEventListener('pointerdown', (e) => {
+    dragging = true;
     const startX = e.clientX;
     const startPan = g.panOffsetS;
-    const pxPerSecond = cv.clientWidth / DEFAULT_WINDOW_S;
+    const pxPerSecond = cv.clientWidth / g.windowS;
     cv.style.cursor = 'grabbing';
     cv.setPointerCapture(e.pointerId);
     const onMove = (e2: PointerEvent) => {
@@ -413,6 +535,7 @@ function attachPanControls(g: OpenGraph): void {
       redrawGraph(g);
     };
     const onUp = () => {
+      dragging = false;
       cv.style.cursor = 'grab';
       cv.removeEventListener('pointermove', onMove);
       cv.removeEventListener('pointerup', onUp);
@@ -434,6 +557,22 @@ function attachPanControls(g: OpenGraph): void {
     g.panOffsetS = 0;
     redrawGraph(g);
   });
+
+  // Stock-chart-style hover readout - separate from the drag-to-pan handling
+  // above, so a plain hover (no button held) shows a crosshair without
+  // fighting the pan gesture.
+  cv.addEventListener('pointermove', (e) => {
+    if (dragging) return;
+    const t = clientXToT(g, cv, e.clientX);
+    if (t === null) return;
+    g.hoverT = t;
+    redrawGraph(g);
+  });
+  cv.addEventListener('pointerleave', () => {
+    if (dragging) return;
+    g.hoverT = null;
+    redrawGraph(g);
+  });
 }
 
 export function openGraph(kindId: string, prn: string | null): void {
@@ -443,12 +582,17 @@ export function openGraph(kindId: string, prn: string | null): void {
   const gid = `graph${++graphSeq}`;
   const isIq = kindId === 'iq';
   const width = isIq ? 190 : kindId === 'dil' ? 320 : 260;
+  const cascade = (graphSeq % 5) * 24;
+  // Clamp against the Tracking window's reserved right-hand column (docked
+  // 'tr', 460px wide + 12px margin) so the cascade can't slide new graphs
+  // underneath it on anything narrower than a wide desktop viewport.
+  const x = Math.min(340 + cascade, Math.max(180, window.innerWidth - 484 - width));
 
   const win = createWindow({
     id: gid,
     title,
-    x: 340 + (graphSeq % 5) * 24,
-    y: 40 + (graphSeq % 5) * 24,
+    x,
+    y: 40 + cascade,
     w: width,
     h: isIq ? 210 : 150,
     minW: 140,
@@ -460,13 +604,27 @@ export function openGraph(kindId: string, prn: string | null): void {
     },
   });
 
+  const windowSelHtml = isIq
+    ? ''
+    : `<select id="${gid}-win" class="gg-win-sel" title="Time window">${WINDOW_CHOICES_S.map(
+        (s) => `<option value="${s}"${s === DEFAULT_WINDOW_S ? ' selected' : ''}>${formatWindowChoice(s)}</option>`,
+      ).join('')}</select>`;
+
   if (isIq) {
     win.body.innerHTML = `<canvas id="${gid}-cv" style="width:100%;flex:1;"></canvas>`;
   } else if (kindId === 'dil') {
     const legend = DOP_SERIES.map((s) => `<span style="color:${s.color}">■ ${s.label}</span>`).join(' ');
-    win.body.innerHTML = `<div class="gg-head"><span class="t label" style="display:flex;gap:8px;">${legend}</span><span class="v tnum" id="${gid}-val">—</span></div><canvas id="${gid}-cv" style="width:100%;flex:1;"></canvas>`;
+    win.body.innerHTML = `<div class="gg-head"><span class="t label" style="display:flex;gap:8px;">${legend}</span>${windowSelHtml}<span class="v tnum" id="${gid}-val">—</span></div><canvas id="${gid}-cv" style="width:100%;flex:1;"></canvas>`;
   } else {
-    win.body.innerHTML = `<div class="gg-head"><span class="t label">${kind.label}</span><span class="v tnum" id="${gid}-val">—</span></div><canvas id="${gid}-cv" style="width:100%;flex:1;"></canvas>`;
+    // posErrM is distance from the baseline fix recorded at session start -
+    // a genuine "error" only for a stationary antenna; on a moving receiver
+    // it's just displacement. Surface that caveat where the number is read,
+    // rather than let it silently imply the metric works for mobile use too.
+    const labelAttrs =
+      kindId === 'pos'
+        ? ` title="Distance from the fix recorded at session start. Meaningful as an error only for a stationary antenna - on a moving receiver this is displacement, not error."`
+        : '';
+    win.body.innerHTML = `<div class="gg-head"><span class="t label"${labelAttrs}>${kind.label}</span>${windowSelHtml}<span class="v tnum" id="${gid}-val">—</span></div><canvas id="${gid}-cv" style="width:100%;flex:1;"></canvas>`;
   }
 
   const g: OpenGraph = {
@@ -477,9 +635,18 @@ export function openGraph(kindId: string, prn: string | null): void {
     valueEl: win.body.querySelector<HTMLElement>(`#${gid}-val`),
     window: win,
     panOffsetS: 0,
+    windowS: DEFAULT_WINDOW_S,
+    hoverT: null,
   };
   openGraphs.push(g);
   attachPanControls(g);
+
+  const winSel = win.body.querySelector<HTMLSelectElement>(`#${gid}-win`);
+  winSel?.addEventListener('change', () => {
+    g.windowS = Number(winSel.value);
+    redrawGraph(g);
+  });
+
   // Resizing a window doesn't otherwise trigger a redraw until the next
   // feed tick - for a slow real feed that reads as "stuck" mid-drag.
   new ResizeObserver(() => redrawGraph(g)).observe(g.canvas);

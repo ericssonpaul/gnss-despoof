@@ -8,6 +8,12 @@ std::string to_json(const Snapshot& snap)
 {
     nlohmann::json j;
 
+    // Snapshot and DetectionResult land on the same WebSocket connection
+    // (different uWS pub/sub topics, but topics aren't visible to the
+    // client) - this tag is how WebSocketFeed on the frontend tells the two
+    // apart. See detection_engine.cpp's to_json for the other side.
+    j["type"] = "snapshot";
+
     j["receiver"] = {
         {"name", snap.receiver_name},
         {"sessionId", snap.session_id},
@@ -54,16 +60,6 @@ std::string to_json(const Snapshot& snap)
         });
     }
     j["satellites"] = std::move(sats);
-
-    auto events = nlohmann::json::array();
-    for (const auto& e : snap.events) {
-        events.push_back({{"text", e.text}, {"alert", e.alert}});
-    }
-    j["detector"] = {
-        {"posture",
-         {{"d1", snap.posture.d1}, {"d2", snap.posture.d2}, {"d3", snap.posture.d3}, {"d4", snap.posture.d4}}},
-        {"events", std::move(events)},
-    };
 
     return j.dump();
 }
